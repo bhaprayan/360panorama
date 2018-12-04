@@ -3,6 +3,7 @@ import numpy as np
 from scipy.ndimage.morphology import distance_transform_edt
 from skimage.transform import estimate_transform
 import matplotlib.pyplot as plt
+import os
 
 
 def imageStitching_noClip(im1, im2, H2to1):
@@ -72,17 +73,6 @@ def imageStitching_noClip(im1, im2, H2to1):
     
     return scale_mat[:-1],pano_im
 
-def generatePanorama(im1,im2):
-    locs1, desc1 = briefLite(im1)
-    locs2, desc2 = briefLite(im2)
-    matches = briefMatch(desc1, desc2)
-    H2to1 = ransacH(matches, locs1, locs2, num_iter=5000, tol=2)
-    im3 = imageStitching_noClip(im1, im2, H2to1)
-    cv2.imwrite('../results/q6_3_pan.jpg',im3)
-    return im3
-    
-
-
 def computeCylindrical(im,f):
     x_len = im.shape[1]
     y_len = im.shape[0]
@@ -96,8 +86,6 @@ def computeCylindrical(im,f):
         for curr_y in range(im.shape[0]):
             cyl_coords[curr_y,curr_x,0] = np.arctan((curr_x - x_cen)/f)
             cyl_coords[curr_y,curr_x,1] = 1.*(curr_y - y_cen)/np.sqrt((curr_x - x_cen)**2 + f**2)
-            
-
             corr_x = np.around(x_cen + f*np.tan(1.*(curr_x-x_cen)/f)).astype(int)
             corr_y = np.around(y_cen + np.sqrt((corr_x-x_cen)**2 + f**2)*( (curr_y - y_cen)/f ) ).astype(int)
             if corr_x<0 or corr_x>=x_len or corr_y<0 or corr_y>=y_len:
@@ -112,20 +100,25 @@ def computeCylindrical(im,f):
 if __name__ == '__main__':
 # Number of images to be stitched together. In init_ind is an index that is basically
 # used to identify the starting point of images that have been named sequentially 
-    no_images = 3
+    no_images = 16
     init_ind=1
-    im_folder = 'data/cyl_pano/'
-    im1 = cv2.imread(('data/cyl_pano/im'+str(init_ind)+'_c.jpg'))
-    im2 = cv2.imread(('data/cyl_pano/im' + str(init_ind+1) + '_c.jpg'))
-
+    # im_folder = 'data/cyl_pano/'
+    # im1 = cv2.imread(('data/cyl_pano/im'+str(init_ind)+'_c.jpg'))
+    # im2 = cv2.imread(('data/cyl_pano/im' + str(init_ind+1) + '_c.jpg'))
+    im_folder = 'data/Room360/data3/'
+    images = os.listdir(im_folder)
+    im1 = cv2.imread((im_folder+images[0]))
+    im2 = cv2.imread((im_folder+images[1]))
+    print('Image 0 path:', im_folder+images[0])
+    print('Image 1 path:', im_folder+images[1])
     foc_len = 3500/(2)
 
 # Project to cylindrical coordinates and unwrap the cylinder
     cyl1, _ = computeCylindrical(im1,foc_len)
     cyl2, _ = computeCylindrical(im2,foc_len)
 
-    for ind in range(no_images-1):
-
+    for image_index in range(len(images)):
+        print('Current image number:', image_index)
         orb = cv2.ORB_create()
         kp1, des1 = orb.detectAndCompute(cyl1,None)
         kp2, des2 = orb.detectAndCompute(cyl2,None)
@@ -156,12 +149,13 @@ if __name__ == '__main__':
 
         # Compute the affine transformation matrix
         A = cv2.estimateRigidTransform(src,dst,fullAffine=True)
-
+        print(A.shape)
         scale_mat,final = imageStitching_noClip(cyl1,cyl2,A)
         cyl1 = final
 
         # Load the next image and bring it to the same scale as the image stitched so far
-        next_path = im_folder + 'im' + str(ind+init_ind+2) + '_c.jpg'
+        next_path = im_folder + images[image_index+2]
+        print('Current image path:', next_path)
         im2 = cv2.imread(next_path)
         cyl2, _ = computeCylindrical(im2,foc_len)
         scale_fac = scale_mat[0,0]
@@ -170,10 +164,10 @@ if __name__ == '__main__':
         # cv2.destroyAllWindows()
 
         cyl2 = cv2.warpAffine(cyl2,scale_mat,(np.floor(cyl2.shape[1]*scale_fac).astype(int),np.floor(cyl2.shape[0]*scale_fac).astype(int)))
-        cv2.imshow('img5',cyl2)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.imshow('img5',cyl2)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
 
-        cv2.imshow('final',final)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    cv2.imshow('final',final)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
