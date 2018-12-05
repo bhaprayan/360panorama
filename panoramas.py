@@ -31,7 +31,7 @@ def imageStitching_noClip(im1, im2, H2to1):
     req_width = extr_pts[0,:].max() - extr_pts[0,:].min()
     req_height = extr_pts[1,:].max() - extr_pts[1,:].min()
     req_AR = req_height/req_width
-
+    given_width = np.floor(req_width).astype(int)
     # Compute the dimensions of the output image using the specified width, and
     # the aspect ratio computed above 
     img_dims = (given_width,np.ceil(req_AR*given_width).astype(int))
@@ -61,14 +61,20 @@ def imageStitching_noClip(im1, im2, H2to1):
 
     mask1 = cv2.warpAffine(mask1,M_mat[:-1],img_dims)[:,:,np.newaxis]
     mask2 = cv2.warpAffine(mask2,(M_mat@H2to1)[:-1],img_dims)[:,:,np.newaxis]
+
+    mask1 = cv2.warpPerspective(mask1,M_mat,img_dims)[:,:,np.newaxis]
+    mask2 = cv2.warpPerspective(mask2,(M_mat@H2to1),img_dims)[:,:,np.newaxis]
+
     mask1 = mask1/mask1.max()
     mask2 = mask2/mask2.max()
     
+
+
     # Compute warped images 1 and 2, with image 1 only being warped with the M
     # matrix while image 2 is warped using M*H2to1. Use masks for blending the
     # two into the final panorama 
     warped_im1 = cv2.warpPerspective(im1,M_mat,img_dims)
-    warped_im2 = cv2.warpPerspective(im2,M_mat@H2to1,img_dims)
+    warped_im2 = cv2.warpPerspective(im2,(H2to1),img_dims)
     pano_im = np.where((mask1+mask2)==0,0,(mask1/(mask1+mask2))*warped_im1 + (mask2/(mask1+mask2))*warped_im2).astype(im1.dtype)
     
     return scale_mat[:-1],pano_im
@@ -96,6 +102,37 @@ def computeCylindrical(im,f):
     # cv2.destroyAllWindows()
     return cyl_img,cyl_coords
             
+def ransacA(src, dst, num_iter=2000, tol=8):
+    pts1 = np.concatenate((src,np.ones((len(src),1),src.dtype)),axis=-1)
+    pts2 = np.concatenate((dst,np.ones((len(src),1),src.dtype)),axis=-1)
+    
+    max_inliers = 0
+    # print(pts2.shape)
+    bestA = np.zeros((2,3),dtype=np.float)
+    for ind in range(num_iter):
+        random_inds = np.random.choice(len(pts1),2)
+        p1 = pts1[random_inds,:-1] 
+        p2 = pts2[random_inds,:-1]
+        trans = np.mean(p2-p1,axis=0)
+        curr_A = np.eye(3)[:-1]
+        curr_A[:,-1] = trans
+
+        # curr_A = cv2.estimateRigidTransform(p1,p2,fullAffine=False)
+        # print(curr_A)
+        if len(np.shape(curr_A)) == 0:
+            continue
+        comp_pts1 = (curr_A@pts1.T).T
+        dist = np.linalg.norm(comp_pts1 - pts2[:,:-1],axis=1)
+        inliers = np.where(dist<tol)[0]
+        # print(len(inliers))
+        if len(inliers)>max_inliers:
+            max_inliers = len(inliers)
+            bestH = curr_A
+        # print(match_pts)
+        # print(comp_p1[:,:5]/comp_p1[2,:5])
+    print(max_inliers)
+    return bestH
+
 
 if __name__ == '__main__':
 # Number of images to be stitched together. In init_ind is an index that is basically
@@ -106,17 +143,20 @@ if __name__ == '__main__':
     # im1 = cv2.imread(('data/cyl_pano/im'+str(init_ind)+'_c.jpg'))
     # im2 = cv2.imread(('data/cyl_pano/im' + str(init_ind+1) + '_c.jpg'))
     im_folder = 'data/Room360/data3/'
-    images = os.listdir(im_folder)
+    images = sorted(os.listdir(im_folder))
+    print(sorted(images))
     im1 = cv2.imread((im_folder+images[0]))
     im2 = cv2.imread((im_folder+images[1]))
     print('Image 0 path:', im_folder+images[0])
     print('Image 1 path:', im_folder+images[1])
-    foc_len = 3500/(2)
+    foc_len = 3500/(1.22)
 
 # Project to cylindrical coordinates and unwrap the cylinder
-    cyl1, _ = computeCylindrical(im1,foc_len)
-    cyl2, _ = computeCylindrical(im2,foc_len)
+    # cyl1, _ = computeCylindrical(im1,foc_len)
+    # cyl2, _ = computeCylindrical(im2,foc_len)
 
+    cyl1 = im1
+    cyl2 = im2
     for image_index in range(len(images)):
         print('Current image number:', image_index)
         orb = cv2.ORB_create()
@@ -141,15 +181,17 @@ if __name__ == '__main__':
         src = np.stack(src,axis=0)
         dst = np.stack(dst,axis=0)
         
-        # img3 = cv2.drawMatches(cyl1,kp1,cyl2,kp2,matches[:40],None, flags=2)
+        img3 = cv2.drawMatches(cyl1,kp1,cyl2,kp2,matches[:40],None, flags=2)
 
-        # cv2.imshow('img3',img3)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
+        cv2.imshow('img3',img3)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
         # Compute the affine transformation matrix
-        A = cv2.estimateRigidTransform(src,dst,fullAffine=True)
-        print(A.shape)
+        # A = cv2.estimateRigidTransform(src,dst,fullAffine=False)
+        # A,_ = cv2.findHomography(src,dst,method=cv2.RANSAC)
+        A = ransacA(src,dst)
+        print(A)
         scale_mat,final = imageStitching_noClip(cyl1,cyl2,A)
         cyl1 = final
 
@@ -167,7 +209,7 @@ if __name__ == '__main__':
         # cv2.imshow('img5',cyl2)
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
-
-    cv2.imshow('final',final)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        final2 = cv2.resize(final,(1600,400))
+        cv2.imshow('final',final2)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
