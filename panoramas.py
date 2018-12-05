@@ -134,82 +134,87 @@ def ransacA(src, dst, num_iter=2000, tol=8):
     return bestH
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 # Number of images to be stitched together. In init_ind is an index that is basically
 # used to identify the starting point of images that have been named sequentially 
-    no_images = 16
-    init_ind=1
-    # im_folder = 'data/cyl_pano/'
-    # im1 = cv2.imread(('data/cyl_pano/im'+str(init_ind)+'_c.jpg'))
-    # im2 = cv2.imread(('data/cyl_pano/im' + str(init_ind+1) + '_c.jpg'))
-    im_folder = 'data/Room360/data3/'
-    images = sorted(os.listdir(im_folder))
-    print(sorted(images))
-    im1 = cv2.imread((im_folder+images[0]))
-    im2 = cv2.imread((im_folder+images[1]))
-    print('Image 0 path:', im_folder+images[0])
-    print('Image 1 path:', im_folder+images[1])
-    foc_len = 3500/(1.22)
+no_images = 5
+init_ind=1
+# im_folder = 'data/cyl_pano/'
+# im1 = cv2.imread(('data/cyl_pano/im'+str(init_ind)+'_c.jpg'))
+# im2 = cv2.imread(('data/cyl_pano/im' + str(init_ind+1) + '_c.jpg'))
+im_folder = 'data/Room360/data5/fps2/'
+images = sorted(os.listdir(im_folder))
+print(sorted(images))
+
+foc_len = 3500/(1.22)
 
 # Project to cylindrical coordinates and unwrap the cylinder
-    # cyl1, _ = computeCylindrical(im1,foc_len)
+stitched_images = []
+
+# cyl1 = im1
+# cyl2 = im2
+for image_index in range(len(images)-1):
+    im1 = cv2.imread((im_folder+images[image_index]))
+    im2 = cv2.imread((im_folder+images[image_index+1]))
+    print('Image 0 path:', im_folder+images[image_index])
+    print('Image 1 path:', im_folder+images[image_index+1])
+    cyl1, _ = computeCylindrical(im1,foc_len)
+    cyl2, _ = computeCylindrical(im2,foc_len)
+    orb = cv2.ORB_create()
+    kp1, des1 = orb.detectAndCompute(cyl1,None)
+    kp2, des2 = orb.detectAndCompute(cyl2,None)
+    
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+    # Match descriptors.
+    matches = bf.match(des1,des2)
+
+    # Sort them in the order of their distance.
+    matches = sorted(matches, key = lambda x:x.distance)
+    
+    src = []
+    dst = []
+
+    for match in matches[:40]:
+        src.append(np.array(kp2[match.trainIdx].pt))
+        dst.append(np.array(kp1[match.queryIdx].pt))
+    
+    src = np.stack(src,axis=0)
+    dst = np.stack(dst,axis=0)
+    
+    img3 = cv2.drawMatches(cyl1,kp1,cyl2,kp2,matches[:40],None, flags=2)
+
+    # cv2.imshow('img3',img3)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
+    # Compute the affine transformation matrix
+    # A = cv2.estimateRigidTransform(src,dst,fullAffine=False)
+    # A,_ = cv2.findHomography(src,dst,method=cv2.RANSAC)
+    A = ransacA(src,dst)
+    print(A)
+    scale_mat,final = imageStitching_noClip(cyl1,cyl2,A)
+    stitched_images.append([final,A])
+    # cyl1 = final
+
+    # Load the next image and bring it to the same scale as the image stitched so far
+    # next_path = im_folder + images[image_index+2]
+    # print('Current image path:', next_path)
+    # im2 = cv2.imread(next_path)
     # cyl2, _ = computeCylindrical(im2,foc_len)
+    # scale_fac = scale_mat[0,0]
+    
+    
+    # cv2.imshow('img4',im2)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
 
-    cyl1 = im1
-    cyl2 = im2
-    for image_index in range(len(images)):
-        print('Current image number:', image_index)
-        orb = cv2.ORB_create()
-        kp1, des1 = orb.detectAndCompute(cyl1,None)
-        kp2, des2 = orb.detectAndCompute(cyl2,None)
-        
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-
-        # Match descriptors.
-        matches = bf.match(des1,des2)
-
-        # Sort them in the order of their distance.
-        matches = sorted(matches, key = lambda x:x.distance)
-        
-        src = []
-        dst = []
-
-        for match in matches[:40]:
-            src.append(np.array(kp2[match.trainIdx].pt))
-            dst.append(np.array(kp1[match.queryIdx].pt))
-        
-        src = np.stack(src,axis=0)
-        dst = np.stack(dst,axis=0)
-        
-        img3 = cv2.drawMatches(cyl1,kp1,cyl2,kp2,matches[:40],None, flags=2)
-
-        cv2.imshow('img3',img3)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-        # Compute the affine transformation matrix
-        # A = cv2.estimateRigidTransform(src,dst,fullAffine=False)
-        # A,_ = cv2.findHomography(src,dst,method=cv2.RANSAC)
-        A = ransacA(src,dst)
-        print(A)
-        scale_mat,final = imageStitching_noClip(cyl1,cyl2,A)
-        cyl1 = final
-
-        # Load the next image and bring it to the same scale as the image stitched so far
-        next_path = im_folder + images[image_index+2]
-        print('Current image path:', next_path)
-        im2 = cv2.imread(next_path)
-        cyl2, _ = computeCylindrical(im2,foc_len)
-        scale_fac = scale_mat[0,0]
-        # cv2.imshow('img4',im2)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-
-        cyl2 = cv2.warpAffine(cyl2,scale_mat,(np.floor(cyl2.shape[1]*scale_fac).astype(int),np.floor(cyl2.shape[0]*scale_fac).astype(int)))
-        # cv2.imshow('img5',cyl2)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        final2 = cv2.resize(final,(1600,400))
-        cv2.imshow('final',final2)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    # cyl2 = cv2.warpAffine(cyl2,scale_mat,(np.floor(cyl2.shape[1]*scale_fac).astype(int),np.floor(cyl2.shape[0]*scale_fac).astype(int)))
+    
+    # cv2.imshow('img5',cyl2)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    # final2 = cv2.resize(final,(1600,400))
+    # cv2.imshow('final',final2)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
