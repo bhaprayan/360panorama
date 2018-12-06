@@ -34,7 +34,7 @@ def imageStitching_noClip(im1, im2, H2to1):
     given_width = np.floor(req_width).astype(int)
     # Compute the dimensions of the output image using the specified width, and
     # the aspect ratio computed above 
-    img_dims = (given_width,np.ceil(req_AR*given_width).astype(int))
+    img_dims = (np.ceil(req_width).astype(int),np.ceil(req_height).astype(int))
 
     # Compute the translation required to ensure that all the extreme points,
     # and thus, both images lie within the final image 
@@ -43,7 +43,7 @@ def imageStitching_noClip(im1, im2, H2to1):
 
     # Construct the scaling and Euclidean (translation only in this case)
     # transformations, and the final M matrix by multiplying the two
-    scale_mat = np.diag((given_width/req_width,given_width/req_width,1))
+    scale_mat = np.diag((1.,1.,1))
     trans_mat = np.array([[1,0,t_x],[0,1,t_y],[0,0,1]])
     
     # scale_mat = np.diag((given_width/req_width,given_width/req_width))
@@ -62,8 +62,8 @@ def imageStitching_noClip(im1, im2, H2to1):
     mask1 = cv2.warpAffine(mask1,M_mat[:-1],img_dims)[:,:,np.newaxis]
     mask2 = cv2.warpAffine(mask2,(M_mat@H2to1)[:-1],img_dims)[:,:,np.newaxis]
 
-    mask1 = cv2.warpPerspective(mask1,M_mat,img_dims)[:,:,np.newaxis]
-    mask2 = cv2.warpPerspective(mask2,(M_mat@H2to1),img_dims)[:,:,np.newaxis]
+    # mask1 = cv2.warpPerspective(mask1,M_mat,img_dims)[:,:,np.newaxis]
+    # mask2 = cv2.warpPerspective(mask2,(M_mat@H2to1),img_dims)[:,:,np.newaxis]
 
     mask1 = mask1/mask1.max()
     mask2 = mask2/mask2.max()
@@ -75,7 +75,7 @@ def imageStitching_noClip(im1, im2, H2to1):
     # two into the final panorama 
     warped_im1 = cv2.warpPerspective(im1,M_mat,img_dims)
     warped_im2 = cv2.warpPerspective(im2,(H2to1),img_dims)
-    pano_im = np.where((mask1+mask2)==0,0,(mask1/(mask1+mask2))*warped_im1 + (mask2/(mask1+mask2))*warped_im2).astype(im1.dtype)
+    pano_im = np.where((mask1+mask2)==0.0,0.0,(mask1*warped_im1/(mask1+mask2)) + (mask2*warped_im2/(mask1+mask2))).astype(im1.dtype)
     
     return scale_mat[:-1],pano_im
 
@@ -153,9 +153,9 @@ stitched_images = []
 
 # cyl1 = im1
 # cyl2 = im2
-for image_index in range(len(images)-1):
+for image_index in range(0,len(images)-1,2):
     im1 = cv2.imread((im_folder+images[image_index]))
-    im2 = cv2.imread((im_folder+images[image_index+1]))
+    im2 = cv2.imread((im_folder+images[image_index+2]))
     print('Image 0 path:', im_folder+images[image_index])
     print('Image 1 path:', im_folder+images[image_index+1])
     cyl1, _ = computeCylindrical(im1,foc_len)
@@ -194,8 +194,27 @@ for image_index in range(len(images)-1):
     A = ransacA(src,dst)
     print(A)
     scale_mat,final = imageStitching_noClip(cyl1,cyl2,A)
-    stitched_images.append([final,A])
+    cv2.imshow('img3',final)
+    # print(scale_mat)
+    stitched_images.append(A)
     # cyl1 = final
+    if image_index == 0:
+        _,stitched_img = imageStitching_noClip(cyl1,cyl2,A)
+        curr_A = A
+    else:
+        print(curr_A)
+        curr_A[:,-1] = curr_A[:,-1] + A[:,-1]
+        curr_A[0,-1] = curr_A[0,-1] - 5
+        print(curr_A)
+        curr_A[0,0] = 1
+        curr_A[1,1] = 1
+        _,stitched_img = imageStitching_noClip(stitched_img,cyl2,curr_A)
+
+    cv2.imshow('img4',cv2.resize(stitched_img,(1600,400)))
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
 
     # Load the next image and bring it to the same scale as the image stitched so far
     # next_path = im_folder + images[image_index+2]
